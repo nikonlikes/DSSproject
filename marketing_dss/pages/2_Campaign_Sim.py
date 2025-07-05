@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime
-import os
+import joblib
 import warnings
 warnings.filterwarnings('ignore')
+import os
+import datetime
 
 # Configure page
 st.set_page_config(
@@ -15,72 +14,101 @@ st.set_page_config(
     layout="wide"
 )
 
-# Load data and models
+# Load data for reference values
 @st.cache_data
 def load_data():
     """Load marketing campaign data for reference"""
     try:
-        df = pd.read_csv("../data/marketing_campaign_dataset.csv")
-        df["Acquisition_Cost"] = df["Acquisition_Cost"].str.replace(r"[\$,]", "", regex=True).astype(float)
-        df["Duration_days"] = df["Duration"].str.extract(r"(\d+)").astype(int)
-        df["Date"] = pd.to_datetime(df["Date"])
+        # Try multiple possible paths for the data file
+        possible_paths = [
+            "data/marketing_campaign_dataset.csv",
+            "../data/marketing_campaign_dataset.csv",
+            "../../data/marketing_campaign_dataset.csv"
+        ]
+        
+        df = None
+        for path in possible_paths:
+            try:
+                df = pd.read_csv(path)
+                break
+            except FileNotFoundError:
+                continue
+        
+        if df is None:
+            raise FileNotFoundError("Could not find marketing_campaign_dataset.csv")
+        
         return df
     except Exception as e:
         st.error(f"Error loading data: {e}")
         return pd.DataFrame()
 
+# Load model artifacts
 @st.cache_resource
 def load_model_artifacts():
-    """Load trained model and preprocessor"""
+    """Load all trained models and feature names"""
     try:
-        import joblib
+        # Try multiple possible paths for the model files
+        possible_model_dirs = [
+            "models/",
+            "../models/",
+            "../../models/"
+        ]
         
-        # Try to load model artifacts from the main project directory
-        model_path = "../models/conversion_rate_model.pkl"
-        preprocess_path = "../models/preprocess.pkl"
-        metadata_path = "../models/model_metadata.pkl"
+        feature_names = None
+        models = {}
         
-        # Check if files exist
-        if not (os.path.exists(model_path) and os.path.exists(preprocess_path)):
-            return None, None, None
-            
-        model = joblib.load(model_path)
-        preprocessor = joblib.load(preprocess_path)
-        metadata = joblib.load(metadata_path) if os.path.exists(metadata_path) else {}
+        # Define model names
+        model_names = {
+            'conversion_rate': 'conversion_rate_model.pkl',
+            'acquisition_cost': 'acquisition_cost_model.pkl',
+            'clicks': 'clicks_model.pkl',
+            'impressions': 'impressions_model.pkl',
+            'engagement_score': 'engagement_score_model.pkl',
+        }
         
-        return model, preprocessor, metadata
+        # Try to load from each directory
+        for model_dir in possible_model_dirs:
+            try:
+                # Load feature names
+                feature_path = f"{model_dir}feature_names_v2.pkl"
+                if os.path.exists(feature_path):
+                    feature_names = joblib.load(feature_path)
+                    
+                    # Load all models
+                    for name, filename in model_names.items():
+                        model_path = f"{model_dir}{filename}"
+                        if os.path.exists(model_path):
+                            models[name] = joblib.load(model_path)
+                    
+                    if len(models) == 5:  # All models loaded
+                        break
+            except Exception as e:
+                continue
+        
+        return feature_names, models
     except Exception as e:
-        st.error(f"Error loading model: {e}")
-        return None, None, None
+        st.error(f"Error loading models: {e}")
+        return None, {}
 
-# Initialize data and model
+# Initialize data and models
 df = load_data()
-model, preprocessor, metadata = load_model_artifacts()
+feature_names, models = load_model_artifacts()
 
 # Page header
 st.title("🎯 Campaign Performance Simulator")
-st.markdown("Predict conversion rates for new marketing campaigns using AI")
+st.markdown("Multi-target forecasting for comprehensive campaign analysis")
 st.markdown("---")
 
-if df.empty:
-    st.error("Failed to load data. Please check if the data file exists.")
+# Check if models are loaded
+if len(models) != 5:
+    st.error("""
+    ⚠️ **Models not found!** 
+    
+    Please run the Jupyter notebook `01_explore_marketing.ipynb` first to train and save all models.
+    """)
     st.stop()
 
-# Model status
-if model is None:
-    st.warning("""
-    ⚠️ **Model not found!** 
-    
-    Please run the Jupyter notebook `00_explore_marketing.ipynb` first to train and save the model.
-    
-    For demo purposes, this simulator will use statistical estimates based on historical data.
-    """)
-    use_model = False
-else:
-    st.success(f"✅ Model loaded successfully! Using {metadata.get('model_type', 'trained')} model.")
-    use_model = True
-
-st.markdown("---")
+st.success(f"✅ All 5 models loaded successfully!")
 
 # Input Section
 st.subheader("📝 Campaign Configuration")
@@ -88,22 +116,12 @@ st.subheader("📝 Campaign Configuration")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.markdown("**🎯 Campaign Setup**")
-    
     # Campaign Type
     campaign_types = sorted(df['Campaign_Type'].unique().tolist())
     campaign_type = st.selectbox(
         "Campaign Type",
         campaign_types,
         help="Select the type of marketing campaign"
-    )
-    
-    # Channel Used
-    channels = sorted(df['Channel_Used'].unique().tolist())
-    channel_used = st.selectbox(
-        "Channel Used",
-        channels,
-        help="Select the marketing channel"
     )
     
     # Target Audience
@@ -113,45 +131,51 @@ with col1:
         audiences,
         help="Select the target demographic"
     )
+    
+    # Channel Used
+    channels = sorted(df['Channel_Used'].unique().tolist())
+    channel_used = st.selectbox(
+        "Channel Used",
+        channels,
+        help="Select the marketing channel"
+    )
 
 with col2:
-    st.markdown("**💰 Budget & Duration**")
-    
     # Duration
-    duration_days = st.slider(
-        "Duration (days)",
-        min_value=7,
-        max_value=90,
-        value=30,
-        help="Campaign duration in days"
+    duration_options = ['15 days', '30 days', '45 days', '60 days']
+    duration = st.selectbox(
+        "Duration",
+        duration_options,
+        index=1,  # Default to 30 days
+        help="Campaign duration"
+    )
+    
+    # Campaign Start Month
+    month_options = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ]
+    # Default to current month
+    current_month = datetime.datetime.now().strftime('%B')
+    default_month_idx = month_options.index(current_month) if current_month in month_options else 0
+    
+    campaign_month = st.selectbox(
+        "Campaign Start Month",
+        month_options,
+        index=default_month_idx,
+        help="Select the month when the campaign will begin"
     )
     
     # Acquisition Cost
-    min_cost = float(df['Acquisition_Cost'].min())
-    max_cost = float(df['Acquisition_Cost'].max())
-    avg_cost = float(df['Acquisition_Cost'].mean())
-    
     acquisition_cost = st.number_input(
         "Acquisition Cost ($)",
-        min_value=min_cost,
-        max_value=max_cost,
-        value=avg_cost,
+        min_value=0.0,
+        value=2000.0,
         step=100.0,
-        help=f"Budget per acquisition (${min_cost:,.0f} - ${max_cost:,.0f})"
-    )
-    
-    # Engagement Score
-    engagement_score = st.slider(
-        "Expected Engagement Score",
-        min_value=1,
-        max_value=10,
-        value=5,
-        help="Expected engagement level (1-10 scale)"
+        help="Budget per acquisition"
     )
 
 with col3:
-    st.markdown("**🌍 Location & Segment**")
-    
     # Location
     locations = sorted(df['Location'].unique().tolist())
     location = st.selectbox(
@@ -176,243 +200,92 @@ with col3:
         help="Target customer segment"
     )
 
-# Additional inputs for realistic simulation
-st.markdown("**📊 Additional Metrics**")
-col1, col2 = st.columns(2)
-
-with col1:
-    # Estimated clicks
-    avg_clicks = df['Clicks'].mean()
-    clicks = st.number_input(
-        "Expected Clicks",
-        min_value=0,
-        value=int(avg_clicks),
-        step=10,
-        help="Expected number of clicks"
-    )
-
-with col2:
-    # Estimated impressions
-    avg_impressions = df['Impressions'].mean()
-    impressions = st.number_input(
-        "Expected Impressions",
-        min_value=0,
-        value=int(avg_impressions),
-        step=100,
-        help="Expected number of impressions"
-    )
-
 # Prediction Section
 st.markdown("---")
 st.subheader("🔮 Prediction Results")
 
 # Create prediction button
-predict_button = st.button("🚀 Predict Campaign Performance", type="primary")
-
-if predict_button:
-    # Prepare input data
-    user_dict = {
-        'Campaign_Type': campaign_type,
-        'Channel_Used': channel_used,
-        'Target_Audience': target_audience,
-        'Duration_days': duration_days,
-        'Acquisition_Cost': acquisition_cost,
-        'Engagement_Score': engagement_score,
-        'Location': location,
-        'Language': language,
-        'Customer_Segment': customer_segment,
-        'Clicks': clicks,
-        'Impressions': impressions,
-        'Month': datetime.now().month  # Current month
+if st.button("🚀 Predict Campaign Performance", type="primary"):
+    # Create base input data with only numeric features initially
+    input_data = {
+        'Acquisition_Cost': acquisition_cost
     }
     
-    if use_model:
-        try:
-            # Use trained model for prediction
-            X_new = pd.DataFrame([user_dict])
-            X_prep = preprocessor.transform(X_new)
-            y_pred = model.predict(X_prep)[0]
+    # Add all categorical features with one-hot encoding
+    if feature_names:
+        for feature in feature_names:
+            if feature in input_data:
+                continue
             
-            # Get confidence interval if available
-            if hasattr(model, 'predict_proba'):
-                confidence = "High"
-            else:
-                confidence = "Medium"
-                
-        except Exception as e:
-            st.error(f"Prediction error: {e}")
-            y_pred = None
-    else:
-        # Use statistical estimation based on historical data
-        similar_campaigns = df[
-            (df['Campaign_Type'] == campaign_type) &
-            (df['Channel_Used'] == channel_used) &
-            (df['Customer_Segment'] == customer_segment)
-        ]
-        
-        if len(similar_campaigns) > 0:
-            # Base prediction on similar campaigns
-            base_conversion = similar_campaigns['Conversion_Rate'].mean()
+            # Initialize to 0 (for one-hot encoded features)
+            input_data[feature] = 0
             
-            # Adjust for engagement score
-            engagement_factor = (engagement_score - 5) * 0.02  # ±2% per point from baseline
-            
-            # Adjust for duration (longer campaigns might have lower conversion)
-            duration_factor = -0.001 * max(0, duration_days - 30)  # Penalty for long campaigns
-            
-            y_pred = base_conversion + engagement_factor + duration_factor
-            y_pred = max(0, min(1, y_pred))  # Bound between 0 and 1
-            confidence = "Estimated"
-        else:
-            # Fallback to overall average
-            y_pred = df['Conversion_Rate'].mean()
-            confidence = "Low"
+            # Set appropriate categorical features to 1
+            if feature == f'Campaign_Type_{campaign_type}':
+                input_data[feature] = 1
+            elif feature == f'Target_Audience_{target_audience}':
+                input_data[feature] = 1
+            elif feature == f'Channel_Used_{channel_used}':
+                input_data[feature] = 1
+            elif feature == f'Location_{location}':
+                input_data[feature] = 1
+            elif feature == f'Language_{language}':
+                input_data[feature] = 1
+            elif feature == f'Customer_Segment_{customer_segment}':
+                input_data[feature] = 1
+            elif feature == f'Month_{campaign_month}':
+                input_data[feature] = 1
+            elif feature == f'Duration_{duration}':
+                input_data[feature] = 1
     
-    if y_pred is not None:
-        # Display prediction
-        col1, col2, col3 = st.columns(3)
+    # Create DataFrame with correct column order
+    X_input = pd.DataFrame([input_data])[feature_names]
+    
+    # Make predictions for all targets
+    results = {}
+    for name, model in models.items():
+        try:
+            prediction = model.predict(X_input)[0]
+            results[name] = prediction
+        except Exception as e:
+            st.error(f"Error predicting {name}: {e}")
+            results[name] = None
+    
+    # Display results table
+    if all(v is not None for v in results.values()):
+        st.success("🎉 Predictions generated successfully!")
+        
+        # Create results dataframe for display
+        results_df = pd.DataFrame([
+            ["Conversion Rate", f"{results['conversion_rate']:.3f}"],
+            ["Predicted Acquisition Cost", f"${results['acquisition_cost']:,.2f}"],
+            ["Clicks", f"{results['clicks']:,.0f}"],
+            ["Impressions", f"{results['impressions']:,.0f}"],
+            ["Engagement Score", f"{results['engagement_score']:.2f}"]
+        ], columns=["Metric", "Prediction"])
+        
+        # Display as table
+        st.table(results_df)
+        
+        # Additional summary
+        st.markdown("---")
+        st.markdown("### 📊 Summary Insights")
+        
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.metric(
-                label="🎯 Predicted Conversion Rate",
-                value=f"{y_pred:.2%}",
-                delta=f"{y_pred - df['Conversion_Rate'].mean():.2%} vs avg"
-            )
+            st.metric("💰 Cost per Click", f"${results['acquisition_cost'] / max(1, results['clicks']):.2f}")
         
         with col2:
-            # Estimate ROI based on conversion rate
-            estimated_roi = df[df['Conversion_Rate'].between(y_pred-0.05, y_pred+0.05)]['ROI'].mean()
-            if pd.isna(estimated_roi):
-                estimated_roi = df['ROI'].mean()
-            
-            st.metric(
-                label="💰 Estimated ROI",
-                value=f"{estimated_roi:.2f}",
-                delta=f"{estimated_roi - df['ROI'].mean():.2f} vs avg"
-            )
-        
-        with col3:
-            st.metric(
-                label="📊 Confidence Level",
-                value=confidence,
-                delta=None
-            )
-        
-        # Performance category
-        performance_percentile = (y_pred > df['Conversion_Rate']).mean() * 100
-        
-        if performance_percentile >= 75:
-            performance_category = "🟢 Excellent"
-            category_color = "success"
-        elif performance_percentile >= 50:
-            performance_category = "🟡 Good"
-            category_color = "warning"
-        else:
-            performance_category = "🔴 Needs Improvement"
-            category_color = "error"
-        
-        st.markdown(f"**Performance Category:** :{category_color}[{performance_category}]")
-        st.markdown(f"**Percentile Rank:** {performance_percentile:.0f}% (better than {performance_percentile:.0f}% of historical campaigns)")
-
-# Comparison Section
-st.markdown("---")
-st.subheader("📊 Historical Comparison")
-
-if predict_button and y_pred is not None:
-    # Create comparison visualization
-    fig = go.Figure()
-    
-    # Historical distribution
-    fig.add_trace(go.Histogram(
-        x=df['Conversion_Rate'],
-        name='Historical Campaigns',
-        opacity=0.7,
-        nbinsx=30,
-        histnorm='probability'
-    ))
-    
-    # Predicted value
-    fig.add_vline(
-        x=y_pred,
-        line_dash="dash",
-        line_color="red",
-        annotation_text=f"Your Prediction: {y_pred:.2%}",
-        annotation_position="top"
-    )
-    
-    fig.update_layout(
-        title="Conversion Rate Distribution: Your Campaign vs Historical Data",
-        xaxis_title="Conversion Rate",
-        yaxis_title="Probability Density",
-        height=400
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-
-# Optimization Suggestions
-st.markdown("---")
-st.subheader("💡 Optimization Suggestions")
-
-if predict_button:
-    # Find best performing combinations
-    best_performers = df.groupby(['Campaign_Type', 'Channel_Used'])['Conversion_Rate'].mean().nlargest(5)
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**🏆 Top Performing Combinations**")
-        for i, ((camp_type, channel), conv_rate) in enumerate(best_performers.items(), 1):
-            st.write(f"{i}. {camp_type} + {channel}: {conv_rate:.1%}")
-    
-    with col2:
-        st.markdown("**🎯 Recommendations**")
-        
-        # Find best channel for selected campaign type
-        best_channel_for_type = df[df['Campaign_Type'] == campaign_type].groupby('Channel_Used')['Conversion_Rate'].mean().idxmax()
-        best_rate_for_type = df[df['Campaign_Type'] == campaign_type].groupby('Channel_Used')['Conversion_Rate'].mean().max()
-        
-        if channel_used != best_channel_for_type:
-            st.write(f"💡 Consider switching to {best_channel_for_type} channel ({best_rate_for_type:.1%} avg conversion)")
-        
-        # Engagement optimization
-        if engagement_score < 7:
-            st.write("💡 Increase engagement through interactive content")
-        
-        # Duration optimization
-        optimal_duration = df.groupby('Duration_days')['Conversion_Rate'].mean().idxmax()
-        if abs(duration_days - optimal_duration) > 10:
-            st.write(f"💡 Consider {optimal_duration}-day duration for optimal results")
-
-# Model Information
-if use_model and metadata:
-    st.markdown("---")
-    st.subheader("🤖 Model Information")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.metric(
-            label="Model Type",
-            value=metadata.get('model_type', 'Unknown')
-        )
-    
-    with col2:
-        st.metric(
-            label="Test R² Score",
-            value=f"{metadata.get('test_r2', 0):.3f}"
-        )
-    
-    with col3:
-        st.metric(
-            label="Training Samples",
-            value=f"{metadata.get('training_samples', 0):,}"
-        )
+            st.metric("📈 Click-through Rate", f"{results['clicks'] / max(1, results['impressions']) * 100:.2f}%")
+    else:
+        st.error("Failed to generate predictions. Please check your inputs.")
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-    🎯 Campaign Simulator | Predictions based on historical data analysis | 
-    Results are estimates and actual performance may vary
+    🎯 Multi-Target Campaign Simulator | Powered by HistGradientBoostingRegressor | 
+    Results are ML predictions based on historical data
 </div>
 """, unsafe_allow_html=True) 
