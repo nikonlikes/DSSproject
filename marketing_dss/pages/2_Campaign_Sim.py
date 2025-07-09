@@ -285,7 +285,7 @@ if st.button("🚀 Predict Campaign Performance", type="primary"):
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #666; font-size: 0.8rem;'>
-    🎯 Multi-Target Campaign Simulator | Powered by HistGradientBoostingRegressor | 
+    🎯 Multi-Target Campaign Simulator | Powered by ElasticNet Regression | 
     Results are ML predictions based on historical data
 </div>
 """, unsafe_allow_html=True) 

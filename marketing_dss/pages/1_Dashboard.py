@@ -234,7 +234,7 @@ col1, col2 = st.columns(2)
 with col1:
     # Impressions vs Clicks bubble chart
     fig_bubble = px.scatter(
-        filtered_df.sample(n=min(1000, len(filtered_df))),  # Sample for performance
+        filtered_df.sample(n=min(1000, len(filtered_df)), random_state=42),  # Fixed seed for consistent sampling
         x='Impressions',
         y='Clicks',
         size='Engagement_Score',
