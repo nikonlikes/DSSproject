@@ -153,7 +153,7 @@ st.markdown("---")
 # Visualizations
 st.subheader("📈 Performance Analytics")
 
-# Row 1: Conversion Rate and ROI Analysis
+# Row 1: Conversion Rate and Dynamic Time Series Analysis
 col1, col2 = st.columns(2)
 
 with col1:
@@ -172,19 +172,63 @@ with col1:
     st.plotly_chart(fig_conv, use_container_width=True)
 
 with col2:
-    st.markdown("**ROI Over Time**")
-    roi_time = filtered_df.groupby('Date')['ROI'].mean().reset_index()
-    fig_roi = px.line(
-        roi_time,
-        x='Date',
-        y='ROI',
-        title="ROI Trend Over Time"
+    # Feature selector for time series
+    st.markdown("**Performance Metrics Over Time**")
+    
+    # Define available metrics with their display names and formatting
+    metric_options = {
+        'ROI': {'label': 'ROI', 'format': ':.2f'},
+        'Conversion_Rate': {'label': 'Conversion Rate', 'format': ':.2%'},
+        'Acquisition_Cost': {'label': 'Acquisition Cost ($)', 'format': ':,.2f'},
+        'Clicks': {'label': 'Clicks', 'format': ':,'},
+        'Impressions': {'label': 'Impressions', 'format': ':,'},
+        'Engagement_Score': {'label': 'Engagement Score', 'format': ':.1f'}
+    }
+    
+    selected_metric = st.selectbox(
+        "Select metric to display:",
+        options=list(metric_options.keys()),
+        format_func=lambda x: metric_options[x]['label'],
+        index=0  # Default to ROI
     )
-    fig_roi.update_layout(height=400)
-    st.plotly_chart(fig_roi, use_container_width=True)
+    
+    # Create time series data
+    time_series_data = filtered_df.groupby('Date')[selected_metric].mean().reset_index()
+    
+    # Create the dynamic chart
+    fig_time = px.line(
+        time_series_data,
+        x='Date',
+        y=selected_metric,
+        title=f"{metric_options[selected_metric]['label']} Trend Over Time"
+    )
+    
+    # Customize the chart based on metric type
+    if selected_metric == 'Conversion_Rate':
+        fig_time.update_traces(
+            hovertemplate=f"<b>Date:</b> %{{x}}<br><b>{metric_options[selected_metric]['label']}:</b> %{{y:.2%}}<extra></extra>"
+        )
+    elif selected_metric in ['Clicks', 'Impressions']:
+        fig_time.update_traces(
+            hovertemplate=f"<b>Date:</b> %{{x}}<br><b>{metric_options[selected_metric]['label']}:</b> %{{y:,}}<extra></extra>"
+        )
+    elif selected_metric == 'Acquisition_Cost':
+        fig_time.update_traces(
+            hovertemplate=f"<b>Date:</b> %{{x}}<br><b>{metric_options[selected_metric]['label']}:</b> $%{{y:,.2f}}<extra></extra>"
+        )
+    else:
+        fig_time.update_traces(
+            hovertemplate=f"<b>Date:</b> %{{x}}<br><b>{metric_options[selected_metric]['label']}:</b> %{{y:.2f}}<extra></extra>"
+        )
+    
+    # Update y-axis label
+    fig_time.update_yaxes(title_text=metric_options[selected_metric]['label'])
+    fig_time.update_layout(height=400)
+    
+    st.plotly_chart(fig_time, use_container_width=True)
 
 # Row 2: Engagement Analysis
-st.markdown("**Engagement vs Performance Analysis**")
+st.markdown("**Engagement vs Performance Analysis (Random Sample from 1000)**")
 col1, col2 = st.columns(2)
 
 with col1:
@@ -203,25 +247,64 @@ with col1:
     st.plotly_chart(fig_bubble, use_container_width=True)
 
 with col2:
-    # Campaign Type Performance
-    campaign_perf = filtered_df.groupby('Campaign_Type').agg({
+    # Dynamic Categorical Performance Analysis
+    st.markdown("**Performance Analysis by Category**")
+    
+    # Define available categorical variables
+    categorical_options = {
+        'Campaign_Type': 'Campaign Type',
+        'Channel_Used': 'Channel Used',
+        'Customer_Segment': 'Customer Segment',
+        'Target_Audience': 'Target Audience',
+        'Language': 'Language',
+        'Location': 'Location'
+    }
+    
+    # Filter options to only include columns that exist in the dataframe
+    available_categories = {k: v for k, v in categorical_options.items() if k in filtered_df.columns}
+    
+    selected_category = st.selectbox(
+        "Select category to analyze:",
+        options=list(available_categories.keys()),
+        format_func=lambda x: available_categories[x],
+        index=0  # Default to first available option
+    )
+    
+    # Create performance data for selected category
+    category_perf = filtered_df.groupby(selected_category).agg({
         'Conversion_Rate': 'mean',
         'ROI': 'mean',
         'Campaign_ID': 'count'
     }).reset_index()
-    campaign_perf.columns = ['Campaign_Type', 'Avg_Conversion_Rate', 'Avg_ROI', 'Count']
+    category_perf.columns = [selected_category, 'Avg_Conversion_Rate', 'Avg_ROI', 'Count']
     
-    fig_campaign = px.scatter(
-        campaign_perf,
+    # Create the dynamic scatter plot
+    fig_category = px.scatter(
+        category_perf,
         x='Avg_Conversion_Rate',
         y='Avg_ROI',
         size='Count',
-        text='Campaign_Type',
-        title="Campaign Type Performance (Conversion vs ROI)"
+        text=selected_category,
+        title=f"{available_categories[selected_category]} Performance (Conversion vs ROI)",
+        hover_data={'Count': True}
     )
-    fig_campaign.update_traces(textposition="top center")
-    fig_campaign.update_layout(height=400)
-    st.plotly_chart(fig_campaign, use_container_width=True)
+    
+    # Customize hover template
+    fig_category.update_traces(
+        textposition="top center",
+        hovertemplate="<b>%{text}</b><br>" +
+                     "Conversion Rate: %{x:.2%}<br>" +
+                     "ROI: %{y:.2f}<br>" +
+                     "Campaign Count: %{customdata[0]}<br>" +
+                     "<extra></extra>"
+    )
+    
+    # Update axis labels
+    fig_category.update_xaxes(title_text="Average Conversion Rate", tickformat=".1%")
+    fig_category.update_yaxes(title_text="Average ROI")
+    fig_category.update_layout(height=400)
+    
+    st.plotly_chart(fig_category, use_container_width=True)
 
 # Row 3: Detailed Analysis
 st.markdown("---")
