@@ -19,24 +19,7 @@ st.set_page_config(
 def load_data():
     """Load marketing campaign data for reference"""
     try:
-        # Try multiple possible paths for the data file
-        possible_paths = [
-            "data/marketing_campaign_dataset.csv",
-            "../data/marketing_campaign_dataset.csv",
-            "../../data/marketing_campaign_dataset.csv"
-        ]
-        
-        df = None
-        for path in possible_paths:
-            try:
-                df = pd.read_csv(path)
-                break
-            except FileNotFoundError:
-                continue
-        
-        if df is None:
-            raise FileNotFoundError("Could not find marketing_campaign_dataset.csv")
-        
+        df = pd.read_csv("data/marketing_campaign_dataset.csv")
         return df
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -47,43 +30,23 @@ def load_data():
 def load_model_artifacts():
     """Load all trained models and feature names"""
     try:
-        # Try multiple possible paths for the model files
-        possible_model_dirs = [
-            "models/",
-            "../models/",
-            "../../models/"
-        ]
+        # Load feature names (v2)
+        feature_names = joblib.load("models/feature_names_v2.pkl")
         
-        feature_names = None
-        models = {}
-        
-        # Define model names
+        # Define v2 model names
         model_names = {
-            'conversion_rate': 'conversion_rate_model.pkl',
-            'acquisition_cost': 'acquisition_cost_model.pkl',
-            'clicks': 'clicks_model.pkl',
-            'impressions': 'impressions_model.pkl',
-            'engagement_score': 'engagement_score_model.pkl',
+            'conversion_rate': 'conversion_rate_model_v2.pkl',
+            'acquisition_cost': 'acquisition_cost_model_v2.pkl',
+            'clicks': 'clicks_model_v2.pkl',
+            'impressions': 'impressions_model_v2.pkl',
+            'engagement_score': 'engagement_score_model_v2.pkl',
         }
         
-        # Try to load from each directory
-        for model_dir in possible_model_dirs:
-            try:
-                # Load feature names
-                feature_path = f"{model_dir}feature_names_v2.pkl"
-                if os.path.exists(feature_path):
-                    feature_names = joblib.load(feature_path)
-                    
-                    # Load all models
-                    for name, filename in model_names.items():
-                        model_path = f"{model_dir}{filename}"
-                        if os.path.exists(model_path):
-                            models[name] = joblib.load(model_path)
-                    
-                    if len(models) == 5:  # All models loaded
-                        break
-            except Exception as e:
-                continue
+        # Load all v2 models
+        models = {}
+        for name, filename in model_names.items():
+            model_path = f"models/{filename}"
+            models[name] = joblib.load(model_path)
         
         return feature_names, models
     except Exception as e:
@@ -102,13 +65,13 @@ st.markdown("---")
 # Check if models are loaded
 if len(models) != 5:
     st.error("""
-    ⚠️ **Models not found!** 
+    ⚠️ **V2 Models not found!** 
     
-    Please run the Jupyter notebook `01_explore_marketing.ipynb` first to train and save all models.
+    Please run the Jupyter notebook `01_explore_marketing.ipynb` first to train and save all v2 models.
     """)
     st.stop()
 
-st.success(f"✅ All 5 models loaded successfully!")
+st.success(f"✅ All 5 v2 models loaded successfully!")
 
 # Input Section
 st.subheader("📝 Campaign Configuration")
